@@ -70,8 +70,11 @@ def iter_all_dirs(spec: Dict[str, Any]) -> Iterable[Tuple[str, Dict[str, Any], D
     Yield [sid, stage, d] for all dirs in all stages
     """
     for stage in spec.get("stages", []):
+        #print(f"Stage: {stage}")
         sid = stage.get("id")
+        #print(f"Stage ID: {sid}")
         for d in stage.get("dirs", []):
+            #print(f"Dir: {d}")
             yield sid, stage, d  # Use yield to return these once per iteration; effectively making this function a generator
 
 # ------------------------------
@@ -93,7 +96,7 @@ def build_mermaid(flow_edges: List[str]) -> str:
             # ignore malformed
             continue
         a, b = [s.strip() for s in edge.split("->", 1)]
-        out.append(f"    {a.replace('/', '_')}[\"{a}\"] --> {b.replace('/', '_')}[\"{b}\"]")
+        out.append(f"    {a.replace('/', '_')}[{a}] --> {b.replace('/', '_')}[{b}]")
     out.append("```")
     return "\n".join(out)
 
@@ -132,12 +135,12 @@ def write_per_directory_readmes(root: Path, spec: Dict[str, Any]) -> None:
         # Build allow section
         if allow and isinstance(allow, list):
             allow_lines = "\n".join(f"- `{pat}`" for pat in allow)
-            allow_section = (
-                "### Allowed file patterns\n"
-                "Only files matching **any** of the glob patterns below are allowed:\n\n"
-                f"{allow_lines}\n\n"
-                "_Files not matching these patterns will be flagged by `--validate`._"
-            )
+            allow_section = f"""
+                ### Allowed file patterns\n
+                Only files matching **any** of the glob patterns below are allowed:\n\n
+                {allow_lines}\n\n
+                _Files not matching these patterns will be flagged by `--validate`._
+            """
         else:
             allow_section = (
                 "### Allowed file patterns\n"
@@ -147,21 +150,21 @@ def write_per_directory_readmes(root: Path, spec: Dict[str, Any]) -> None:
         # Build script section
         script_section = ""
         if script:
-            script_section = (
-                "### Associated script\n"
-                f"This directory is associated with the script: `scripts/{script}`\n"
-                "If run from the standard project layout, this script is copied here automatically.\n"
-            )
+            script_section = f"""
+                ### Associated script\n
+                This directory is associated with the script: `scripts/{script}`\n
+                If run from the standard project layout, this script is copied here automatically.\n
+            """
 
         # Compose README content
         readme_md = f"""# {rel}
 
-        **Stage:** `{sid}`{f" — {stage_desc}" if stage_desc else ""}
+        **Stage:** `{sid}`{f" - {stage_desc}" if stage_desc else ""}
 
         This directory is defined in the project’s `DIRSPEC.yaml`.  
         See the top-level [`DIRECTORY_STANDARD.md`](../DIRECTORY_STANDARD.md) for overall layout and flow.
 
-        {("### Notes\n" + notes + "\n") if notes else ""}{allow_section}
+        {('### Notes' + notes) if notes else ""}\n{allow_section}
 
         {script_section}
         """
@@ -245,17 +248,22 @@ def create_scaffold(root: Path, spec: Dict[str, Any]) -> None:
     # Create dirs and write hints
     for sid, stage, d in iter_all_dirs(spec):
         rel = d.get("path")
+
+        # if one of the top-level directories does not exist, create it
+        if not os.path.exists(root / sid):
+            ensure_dir(root / sid)
+            print(f"[INFO] Creating top-level directory '{root / sid}'")
+        
         if not rel:
-            print(f"[WARN] Skipping empty path in stage {sid}")
-            continue
+            print(f"[WARN] Encountered empty path in stage {sid}. Continuing.")
+        else:
+            dir_abs = root / rel
+            ensure_dir(dir_abs)  # make dir
 
         script = d.get("script")
-        if script is None:
+        if script is None and rel:
             print(f"[WARN] Skipping empty script in stage {sid}")
             continue
-
-        dir_abs = root / rel
-        ensure_dir(dir_abs)  # make dir
 
         if check_script_loc():
             script_path = Path("..") / "scripts" / script
@@ -274,7 +282,7 @@ def create_scaffold(root: Path, spec: Dict[str, Any]) -> None:
 
 def parse_args(argv: List[str]) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Generate directory structure, docs, and manifest from DIRSPEC.yaml")
-    ap.add_argument("--spec", default="DIRSPEC.yaml", type=str, help="Path to DIRSPEC.yaml")
+    ap.add_argument("spec", type=str, help="Path to DIRSPEC.yaml")
     ap.add_argument("--root", default=".", type=str, help="Project root where directories will be created/validated")
     ap.add_argument("--validate", action="store_true", help="Validate existing files against allow patterns (no creation)")
     return ap.parse_args(argv)
