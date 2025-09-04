@@ -29,16 +29,12 @@ import fnmatch
 import json
 import os
 import shutil
+import hashlib
 from pathlib import Path
 import sys
 from typing import Dict, List, Any, Iterable, Tuple
-
-try:
-    import yaml  # pyyaml
-except Exception as e:
-    print("[ERROR] PyYAML is required. Install with: pip install pyyaml", file=sys.stderr)
-    raise
-
+from datetime import datetime
+import yaml  # pyyaml
 
 # ------------------------------
 # Data loading & schema helpers
@@ -131,6 +127,7 @@ def write_per_directory_readmes(root: Path, spec: Dict[str, Any]) -> None:
         notes = (d.get("notes") or "").strip()
         allow = d.get("allow", [])
         script = d.get("script")
+        data = d.get("include")
 
         # Build allow section
         if allow and isinstance(allow, list):
@@ -146,6 +143,11 @@ def write_per_directory_readmes(root: Path, spec: Dict[str, Any]) -> None:
                 "### Allowed file patterns\n"
                 "No restrictions: **any files are allowed** here."
             )
+
+        # Build data hash section (if data files passed via include)
+        if data and sid == "data": # still enoforce rule that only data stage can have datafiles
+            for f in data:
+                h = hash_file(f)
 
         # Build script section
         script_section = ""
@@ -175,18 +177,14 @@ def write_per_directory_readmes(root: Path, spec: Dict[str, Any]) -> None:
 
 def write_directory_standard_md(root: Path, spec: Dict[str, Any]) -> None:
     md = []
-    title = "Directory Standard"
+    title = "Auto Generated Directory Standard"
     md.append(f"# {title}")
+    time = datetime.now().strftime("%m-%d-%Y %H:%M:%S")
+    md.append(f"## Created at {time}")
     if spec.get("description"):
         md.append("")
         md.append(spec["description"].strip())
     md.append("")
-
-    flow = spec.get("flow", [])
-    if flow:
-        md.append("## Processing flow")
-        md.append(build_mermaid(flow))
-        md.append("")
 
     md.append("## Stages")
     for stage in spec.get("stages", []):
@@ -194,6 +192,60 @@ def write_directory_standard_md(root: Path, spec: Dict[str, Any]) -> None:
     md.append("")
 
     (root / "DIRECTORY_STANDARD.md").write_text("\n".join(md) + "\n")
+
+def write_per_path_manifest(root: Path, stage: str, d: dict, outname: str = "METADATA.yml") -> None:
+    """
+    Write a per-directory manifest (METADATA.yml) inside each directory in the spec.
+
+    Parameters
+    ----------
+    root : Path
+        Root of the project.
+    stage : str
+        Stage name (e.g. "analysis", "data").
+    d : dict
+        Dictionary describing the directory from DIRSPEC (keys: path, allow, notes, include).
+    outname : str
+        Filename to write (default: METADATA.yml).
+    """
+
+    # Resolve full path of this directory
+    path = d.get("path")
+    if not path:
+        print(f"[WARN] No path for stage {stage}, skipping METADATA.yml")
+        return
+
+    dir_abs = root / stage / path
+    dir_abs.mkdir(parents=True, exist_ok=True)
+
+    allow = d.get("allow", [])
+    notes = d.get("notes", "")
+
+    # Build manifest entry for this directory
+    entry = {
+        "stage": stage,
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "path": str(dir_abs),
+        "allow": allow,
+        "notes": notes,
+        "files": []
+    }
+
+    # If "include" files are specified, add hashes
+    if d.get("include"):
+        for i in d["include"]:
+            entry["files"].append({
+                "source": str(i),
+                "hash": hash_file(Path(i))  # <-- you already have hash_file()
+            })
+
+    # Write YAML inside this directory
+    out_file = dir_abs / outname
+    with out_file.open("w") as f:
+        yaml.safe_dump(entry, f, sort_keys=False)
+
+    print(f"[INFO] Wrote {out_file}")
+
 
 # ------------------------------
 # Validation
@@ -236,6 +288,15 @@ def validate_against_allow(root: Path, spec: Dict[str, Any]) -> int:
             warnings += 1
     return warnings
 
+# ------------------------------
+# Hash operation
+# -----------------------------
+def hash_file(path: Path | str, chunk_size: int = 8192) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(chunk_size), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 # -----------------------------
 # Symlink create operation
@@ -256,6 +317,7 @@ def make_symlink(orig: Path, to: Path, filename: str) -> None:
         return
     else:
         os.symlink(orig, f"{to}/{filename}")
+        print(f"[INFO] {orig} ---> {to}/{filename}")
 
 # ------------------------------
 # Main create operation
@@ -268,6 +330,10 @@ def create_scaffold(root: Path, spec: Dict[str, Any]) -> None:
     # Create dirs and write hints
     for sid, stage, d in iter_all_dirs(spec):
         rel = d.get("path")
+
+        print(sid)
+        print(stage)
+        print(d)
 
         # if one of the top-level directories does not exist, create it
         if not os.path.exists(root / sid):
@@ -300,7 +366,10 @@ def create_scaffold(root: Path, spec: Dict[str, Any]) -> None:
         else:
             print(f"[WARN] Couldn't find script directory from current working dir, skipping copy.")
         # copy script to dir
+        #make_dir_manifest()
+        write_per_path_manifest(root, sid, d)
     # Top-level docs + manifest
+        
     write_directory_standard_md(root, spec)
     write_per_directory_readmes(root, spec)
 
