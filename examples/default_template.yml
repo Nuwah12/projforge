@@ -1,0 +1,30 @@
+project: Cell_Line_ONT
+description: >
+  Standard directory structure for ONT sequencing analysis of a single cell line or entity.
+  Contains raw and processed data, analysis outputs, and final results.
+
+stages:
+  - id: analysis
+    desc: Active analysis outputs (genome assembly, CNV, variant calling, etc.)
+    dirs:
+      - path: 
+        allow: []
+        notes: 
+    
+  - id: data
+    desc: All data files used in the analysis (raw → processed)
+    dirs:
+      - path: "raw" 
+        allow: []
+        notes:
+        include:
+          - "/home/noah/projforge/test_fastq/sample1.fastq"
+          - "/home/noah/projforge/test_fastq/sample2.fastq"
+          - "/home/noah/projforge/test_fastq/sample3.fastq"
+ 
+  - id: results
+    desc: FINAL output files — static figures and tables for publication or reporting
+    dirs:
+      - path: 
+        allow: []
+        notes:
