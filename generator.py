@@ -124,7 +124,7 @@ def write_per_directory_readmes(root: Path, spec: Dict[str, Any]) -> None:
             print(f"[WARN] No path specified in stage {sid}; skipping README.")
             continue
 
-        dir_abs = root / rel
+        dir_abs = root / sid / rel
         dir_abs.mkdir(parents=True, exist_ok=True)
 
         stage_desc = (stage.get("desc") or "").strip()
@@ -237,6 +237,26 @@ def validate_against_allow(root: Path, spec: Dict[str, Any]) -> int:
     return warnings
 
 
+# -----------------------------
+# Symlink create operation
+# -----------------------------
+
+def make_symlink(orig: Path, to: Path, filename: str) -> None:
+    """
+    Make a symlink between original file and new link name
+    Parameters:
+        - orig (Path): File to be linked to
+        - to (Path): Location and name of new symlink
+    """
+    if not os.path.exists(orig):
+        print(f"[WARN] Could not find file {orig}. Continuing without link.")
+        return
+    if not os.path.exists(to):
+        print(f"[WARN] Location {to} does not exist. Continuing without link.")
+        return
+    else:
+        os.symlink(orig, f"{to}/{filename}")
+
 # ------------------------------
 # Main create operation
 # ------------------------------
@@ -257,12 +277,20 @@ def create_scaffold(root: Path, spec: Dict[str, Any]) -> None:
         if not rel:
             print(f"[WARN] Encountered empty path in stage {sid}. Continuing.")
         else:
-            dir_abs = root / rel
+            dir_abs = root / sid / rel
             ensure_dir(dir_abs)  # make dir
+
+        if d.get("include"):
+            if sid == "data": # only pay attention to files if we are in data stage
+                for i in d.get("include"):
+                    filename = i.split("/")[len(i.split("/"))-1]
+                    make_symlink(i, dir_abs, filename)
+            else:
+                print(f"[WARN] Not copying included files in {sid} stage")
 
         script = d.get("script")
         if script is None and rel:
-            print(f"[WARN] Skipping empty script in stage {sid}")
+            print(f"[WARN] Skipping empty scripti(s) in stage {sid}")
             continue
 
         if check_script_loc():
@@ -284,7 +312,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Generate directory structure, docs, and manifest from DIRSPEC.yaml")
     ap.add_argument("spec", type=str, help="Path to DIRSPEC.yaml")
     ap.add_argument("--root", default=".", type=str, help="Project root where directories will be created/validated")
-    ap.add_argument("--validate", action="store_true", help="Validate existing files against allow patterns (no creation)")
+    ap.add_argument("--check_org", action="store_true", help="Validate existing files against allow patterns (no creation)")
     return ap.parse_args(argv)
 
 
@@ -308,7 +336,7 @@ def main(argv: List[str] | None = None) -> int:
         print(f"[INFO] Spec project '{expected}' != root basename '{root.name}'. Proceeding anyway.")
 
     # If --validate is specified, just validate and return, no dirs are created
-    if ns.validate:
+    if ns.check_org:
         warnings = validate_against_allow(root, spec)
         if warnings:
             print(f"Validation completed with {warnings} warning(s).")
